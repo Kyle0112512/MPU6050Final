@@ -3,25 +3,25 @@
 //using 3.3v for MPU6050
 
 //TO DO:
-//fix posative max roll angle
-//check if noise(cutoff) is too high
+//implement yaw
 
 #include <Wire.h>
 const int MPU = 0x68; // MPU6050 I2C address 0x68 for first, mpu 0x69 for second
 float AccX, AccY, AccZ;
+float AccXnoise = 0.01;
+float AccYnoise = 0.01;
+float AccZnoise = 0.05;
 float GyroX, GyroY, GyroZ;
-float AccX_old, AccY_old, AccZ_old;
-float GyroX_old, GyroY_old, GyroZ_old;
-float accAngleX, accAngleY, gyroAngleX, gyroAngleY, gyroAngleZ;
+float GyroXnoise = 0.1;
+float GyroYnoise = 0.1;
+float GyroZnoise = 0.1;
 float roll, pitch, yaw;
 float AccRoll, AccPitch;
 float elapsedTime, currentTime, previousTime;
 
-int RateCalibrationNumber;
-float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ;
-
 float KalmanAngleRoll = 0, KalmanUncertaintyAngleRoll = 4;
 float KalmanAnglePitch = 0, KalmanUncertaintyAnglePitch = 4;
+float KalmanAngleYaw = 0, KalmanUncertaintyAngleYaw = 4;
 float Kalman1DOutput[] = {0, 0};
 uint32_t LoopTimer;
 
@@ -47,52 +47,28 @@ void setup() {
   Wire.write(0x00);                  // Make reset - place a 0 into the 6B register
   Wire.endTransmission();        //end the transmission
 
-  calculate_IMU_error();
-
   delay(10);
-
 }
 void loop() {
   Read();
 
-//    GyroX-=GyroErrorX;//takes out the error
-//    GyroY-=GyroErrorY;
-//    GyroZ-=GyroErrorZ;
-
-  //calculate acceleration roll and pitch
-//  Serial.print("AccX: ");
-//  Serial.print(AccX);
-//  Serial.print("\tAccY: ");
-//  Serial.print(AccY);
-//  Serial.print("\tAccZ: ");
-//  Serial.print(AccZ);
-//rounds to diminish contribution from noise
-  AccX = round(AccX * 20.0) / 20.0;
-  AccY = round(AccY * 20.0) / 20.0;
-  AccZ = round(AccZ * 50.0) / 50.0;
-//  AccX = (abs(AccX) < .05 ? 0 : AccX);
-//  AccY = (abs(AccY) < .05 ? 0 : AccY);
-//  AccZ = (abs(AccZ) < .05 ? 0 : AccZ);
-// 
-  AccRoll = atan(AccY / sqrt(AccX * AccX + AccZ * AccZ))/ (3.1416 / 180);
-  AccPitch = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ))/ (3.1416 / 180); 
-//  AccRoll = atan(AccY / sqrt(AccX * AccX + AccZ * AccZ)) * 1.1 / (3.1416 / 180) + 0;
-//  AccPitch = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ)) * 1.0345 / (3.1416 / 180) + 0; //the +4.3 is different for different MPU 6050s and needs to be calibrated
-//  AccRoll += 2.0 * (AccRoll / 90.0);
-//  Serial.print("AccRoll: ");
-//  Serial.print(AccRoll);
-//  Serial.print("AccPitch: ");
-//  Serial.print(AccPitch);
-  
-  // Currently the raw values are in degrees per seconds, deg/s, so we need to multiply by sendonds (s) to get the angle in degrees
+  // Currently the raw values are in degrees per seconds, deg/s, so we need to multiply by seconds (s) to get the angle in degrees
   previousTime = currentTime;        // Previous time is stored before the actual time read
   currentTime = millis();            // Current time actual time read
   elapsedTime = (currentTime - previousTime) / 1000; // Divide by 1000 to get seconds
-
+  //adust acceleration and gyro readings for noise
   //using only high values from gyroscope because accelerometer accounts for small movements
-  roll += (abs(GyroY) < .1 ? 0 : GyroY) * elapsedTime;
-  pitch += (abs(GyroX) < .1 ? 0 : GyroX) * elapsedTime;
-  yaw += GyroZ * elapsedTime;
+  roll += (abs(GyroY) < GyroYnoise ? 0 : GyroY) * elapsedTime;
+  pitch += (abs(GyroX) < GyroXnoise ? 0 : GyroX) * elapsedTime;
+  yaw += (abs(GyroZ) < GyroZnoise ? 0 : GyroY) * elapsedTime;
+  
+  //rounds to diminish contribution from noise
+  AccX = round(AccX / AccXnoise) * AccXnoise;
+  AccY = round(AccY / AccYnoise) * AccYnoise;
+  AccZ = round(AccZ / AccZnoise) * AccZnoise;
+
+  AccRoll = atan(AccY / sqrt(AccX * AccX + AccZ * AccZ))/ (3.1416 / 180);
+  AccPitch = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ))/ (3.1416 / 180); 
 
   kalman_1d(KalmanAngleRoll, KalmanUncertaintyAngleRoll, roll, AccRoll);//kalman for Roll
   KalmanAngleRoll = Kalman1DOutput[0];
@@ -106,35 +82,24 @@ void loop() {
   // Print the values on the serial monitor
   Serial.print("0: ");
   Serial.print(0);
-  //  Serial.print(" Yaw: ");
-  //  Serial.print(yaw);
-  //  Serial.print(" pitch: ");
-  //  Serial.print(pitch);
-//    Serial.print(" roll: ");
-//    Serial.print(roll);
-
-  //  Serial.print(" AccRoll: ");
-  //  Serial.print(AccRoll);
-  //  Serial.print(" AccPitch: ");
-  //  Serial.println(AccPitch);
 
   Serial.print(" Roll_Angle_[°] ");
   Serial.print(KalmanAngleRoll);
   Serial.print(" Pitch_Angle_[°] ");
   Serial.println(KalmanAnglePitch);
 
-  //  Serial.print(" AccX: ");
-  //  Serial.print(AccX);
-  //  Serial.print(" AccY: ");
-  //  Serial.print(AccY);
-  //  Serial.print(" AccZ: ");
-  //  Serial.print(AccZ);
-  //  Serial.print(" GyroX: ");
-  //  Serial.print(GyroX);
-  //  Serial.print(" GyroY: ");
-  //  Serial.print(GyroY);
-  //  Serial.print(" GyroZ: ");
-  //  Serial.println(GyroZ);
+//  Serial.print(" AccX: ");
+//  Serial.print(AccX);
+//  Serial.print(" AccY: ");
+//  Serial.print(AccY);
+//  Serial.print(" AccZ: ");
+//  Serial.print(AccZ);
+//  Serial.print(" GyroX: ");
+//  Serial.print(GyroX);
+//  Serial.print(" GyroY: ");
+//  Serial.print(GyroY);
+//  Serial.print(" GyroZ: ");
+//  Serial.print(GyroZ);
 
   while (micros() - LoopTimer < 4000);
   LoopTimer = micros();
@@ -165,13 +130,7 @@ void Read(void) {
   AccY = TwosComp(Wire.read() << 8 | Wire.read()) / 4096.0; // Y-axis value
   AccZ = TwosComp(Wire.read() << 8 | Wire.read()) / 4096.0; // Z-axis value
 
-  //apply offsets
-  //  AccX = AccX - AccErrorX;
-  //  AccY = AccY - AccErrorY;
-  //  AccZ = AccZ - AccErrorZ;
-
   // === Read gyroscope data === //
-
   Wire.beginTransmission(MPU);
   Wire.write(0x1B);
   Wire.write(0x8);
@@ -186,31 +145,4 @@ void Read(void) {
   GyroX = TwosComp(Wire.read() << 8 | Wire.read()) / 65.5; // For a 1000deg/s range we have to divide first the raw value by 32.8, according to the datasheet
   GyroY = TwosComp(Wire.read() << 8 | Wire.read()) / 65.5;
   GyroZ = TwosComp(Wire.read() << 8 | Wire.read()) / 65.5;
-
-  //apply ofsets
-  //  GyroX = GyroX - GyroErrorX;
-  //  GyroY = GyroY - GyroErrorY;
-  //  GyroZ = GyroZ - GyroErrorZ;
-  //  GyroX = GyroX+5.5;
-  //  GyroY = GyroY+1;
-  //  GyroZ = GyroZ;
-
-
-
-}
-void calculate_IMU_error() {
-  Wire.beginTransmission(MPU);
-  Wire.write(0x6B);
-  Wire.write(0x00);
-  Wire.endTransmission();
-  for (RateCalibrationNumber = 0; RateCalibrationNumber < 200; RateCalibrationNumber ++) {
-    Read();
-    GyroErrorX += GyroX; //sums up rate of roll and pitch
-    GyroErrorY += GyroY;
-    GyroErrorZ += GyroZ;
-    delay(1);
-  }
-  GyroErrorX /= 200;
-  GyroErrorY /= 200;
-  GyroErrorZ /= 200;
 }
