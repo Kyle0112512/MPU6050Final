@@ -1,9 +1,6 @@
-//MPU6050 I2C address 0x68 for first, mpu 0x69 for second
+//MPU6050
 //pins A4 is SDA and A5 is SCL
 //using 3.3v for MPU6050
-
-//TO DO:
-//implement yaw
 
 #include <Wire.h>
 const int MPU = 0x68; // MPU6050 I2C address 0x68 for first, mpu 0x69 for second
@@ -80,14 +77,10 @@ void loop() {
 
 
   // Print the values on the serial monitor
-  Serial.print("0: ");
-  Serial.print(0);
-
   Serial.print(" Roll_Angle_[°] ");
   Serial.print(KalmanAngleRoll);
   Serial.print(" Pitch_Angle_[°] ");
   Serial.println(KalmanAnglePitch);
-
 //  Serial.print(" AccX: ");
 //  Serial.print(AccX);
 //  Serial.print(" AccY: ");
